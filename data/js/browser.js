@@ -13,7 +13,7 @@
 
     function browse(path, endpoint) {
 
-        if (currentBrowserPath === path) {
+        if (currentBrowserPath == path) {
             return;
         }
 
@@ -34,6 +34,8 @@
                 return i++ != 0;
             });
             $('<h2>').text(first_val.current_path).appendTo(fileBrowserDialog);
+            // set current path to what we path we actually did load (in case the previous dir is no longer there)
+            currentBrowserPath = first_val.current_path;
             list = $('<ul>').appendTo(fileBrowserDialog);
             $.each(data, function (i, entry) {
                 link = $("<a href='javascript:void(0)' />").click(function () { browse(entry.path, endpoint); }).text(entry.name);
@@ -50,7 +52,6 @@
     }
 
     $.fn.nFileBrowser = function (callback, options) {
-
         options = $.extend({}, $.Browser.defaults, options);
 
         // make a fileBrowserDialog object if one doesn't exist already
@@ -60,38 +61,42 @@
             fileBrowserDialog = $('<div id="fileBrowserDialog" style="display:hidden"></div>').appendTo('body').dialog({
                 dialogClass: 'browserDialog',
                 title:       options.title,
-                position:    ['center', 40],
                 minWidth:    Math.min($(document).width() - 80, 650),
                 height:      Math.min($(document).height() - 80, $(window).height() - 80),
                 maxHeight:   Math.min($(document).height() - 80, $(window).height() - 80),
                 maxWidth:    $(document).width() - 80,
                 modal:       true,
                 autoOpen:    false,
-                buttons: [
+            });
+        }
+
+        fileBrowserDialog.dialog('option', 'buttons', [
                     {
                         text: "Ok",
                         "class": "btn btn-large",
                         click: function() {
                             // store the browsed path to the associated text field
                             callback(currentBrowserPath, options);
-                            fileBrowserDialog.dialog("close");
+                            $(this).dialog("close");
                         }
                     },
                     {
                         text: "Cancel",
                         "class": "btn btn-large",
                         click: function() {
-                            fileBrowserDialog.dialog("close");
+                            $(this).dialog("close");
                         }
                     }
-                ]
-            });
-        }
+        ]);
 
         // set up the browser and launch the dialog
         var initialDir = '';
         if (options.initialDir) {
             initialDir = options.initialDir;
+        }
+        // HACK to allow users to specify \\server\path to override use of stored values
+        if (options.field && options.field.val().indexOf('\\') == 0) {
+            initialDir = options.field.val()
         }
         browse(initialDir, options.url);
         fileBrowserDialog.dialog('open');
@@ -107,6 +112,7 @@
         if (options.field.autocomplete && options.autocompleteURL) {
             var query = '';
             options.field.autocomplete({
+                position: { my : "top", at: "bottom", collision: "flipfit" },
                 source: function (request, response) {
                     //keep track of user submitted search term
                     query = $.ui.autocomplete.escapeRegex(request.term);
@@ -125,11 +131,10 @@
                     });
                 },
                 open: function (event, ui) {
-                    $(".ui-autocomplete li.ui-menu-item a").removeClass("ui-corner-all");
-                    $(".ui-autocomplete li.ui-menu-item:odd a").addClass("ui-menu-item-alternate");
+                    $(".ui-autocomplete li.ui-menu-item:odd").addClass("ui-menu-item-alternate");
                 }
             })
-                .data("autocomplete")._renderItem = function (ul, item) {
+                .data("ui-autocomplete")._renderItem = function (ul, item) {
                     //highlight the matched search term from the item -- note that this is global and will match anywhere
                     var result_item = item.label;
                     var x = new RegExp("(?![^&;]+;)(?!<[^<>]*)(" + query + ")(?![^<>]*>)(?![^&;]+;)", "gi");
@@ -137,8 +142,8 @@
                         return '<b>' + FullMatch + '</b>';
                     });
                     return $("<li></li>")
-                        .data("item.autocomplete", item)
-                        .append("<a class='nowrap'>" + result_item + "</a>")
+                        .data("ui-autocomplete-item", item)
+                        .append(result_item)
                         .appendTo(ul);
                 };
         }
@@ -149,7 +154,7 @@
         if (ls && options.key) {
             path = localStorage['fileBrowser-' + options.key];
         }
-        if (options.key && options.field.val().length === 0 && (path)) {
+        if (options.key && options.field.val().length == 0 && (path)) {
             options.field.val(path);
         }
 
@@ -168,7 +173,7 @@
 
         options = $.extend(options, {initialDir: initialDir});
 
-        // append the browse button and give it a click behavior
+        // append the browse button and give it a click behaviour
         return options.field.addClass('fileBrowserField').after($('<input type="button" value="Browse&hellip;" class="btn fileBrowser" />').click(function () {
             $(this).nFileBrowser(callback, options);
             return false;

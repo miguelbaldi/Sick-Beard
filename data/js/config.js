@@ -1,4 +1,7 @@
 $(document).ready(function () {
+    // restore all buttons on page load just in case
+    $("input").prop("disabled", false);
+
     $(".enabler").each(function () {
         if (!$(this).prop('checked')) {
             $('#content_' + $(this).attr('id')).hide();
@@ -17,7 +20,7 @@ $(document).ready(function () {
     $('#configForm').ajaxForm({
         beforeSubmit: function () {
             $('.config_submitter').each(function () {
-                $(this).attr("disabled", "disabled");
+                $(this).prop("disabled", true);
                 $(this).after('<span><img src="' + sbRoot + '/images/loading16.gif"> Saving...</span>');
                 $(this).hide();
             });
@@ -29,7 +32,7 @@ $(document).ready(function () {
 
     $('#api_key').click(function () { $('#api_key').select(); });
     $("#generate_new_apikey").click(function () {
-        $.get(sbRoot + '/config/general/generateKey',
+        $.get(sbRoot + '/config/general/generateKey/',
             function (data) {
                 if (data.error != undefined) {
                     alert(data.error);
@@ -43,7 +46,7 @@ $(document).ready(function () {
 
 function config_success() {
     $('.config_submitter').each(function () {
-        $(this).removeAttr("disabled");
+        $(this).prop("disabled", false);
         $(this).next().remove();
         $(this).show();
     });

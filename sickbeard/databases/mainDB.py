@@ -18,14 +18,16 @@
 
 import sickbeard
 import os.path
+import sys
+import re
 
 from sickbeard import db, common, helpers, logger
-from sickbeard.providers.generic import GenericProvider
 
 from sickbeard import encodingKludge as ek
 from sickbeard.name_parser.parser import NameParser, InvalidNameException
 
-MAX_DB_VERSION = 12
+MIN_DB_VERSION = 9  # oldest db version we support migrating from
+MAX_DB_VERSION = 18
 
 
 class MainSanityCheck(db.DBSanityCheck):
@@ -79,11 +81,16 @@ class MainSanityCheck(db.DBSanityCheck):
             self.connection.action("DELETE FROM tv_episodes WHERE episode_id = ?", [cur_orphan["episode_id"]])
 
         else:
-            logger.log(u"No orphan episode, check passed")
+            logger.log(u"No orphan episodes, check passed")
 
 
 def backupDatabase(version):
-    helpers.backupVersionedFile(db.dbFilename(), version)
+    logger.log(u"Backing up database before upgrade")
+
+    if not helpers.backupVersionedFile(db.dbFilename(), version):
+        logger.log_error_and_exit(u"Database backup failed, abort upgrading database")
+    else:
+        logger.log(u"Proceeding with upgrade")
 
 # ======================
 # = Main DB Migrations =
@@ -91,19 +98,27 @@ def backupDatabase(version):
 # Add new migrations at the bottom of the list; subclass the previous migration.
 
 
+# schema is based off v18 - build 507
 class InitialSchema (db.SchemaUpgrade):
     def test(self):
-        return self.hasTable("tv_shows")
+        return self.hasTable("tv_shows") and self.hasTable("db_version") and self.checkDBVersion() >= MIN_DB_VERSION and self.checkDBVersion() <= MAX_DB_VERSION
 
     def execute(self):
-        queries = [
-            "CREATE TABLE tv_shows (show_id INTEGER PRIMARY KEY, location TEXT, show_name TEXT, tvdb_id NUMERIC, network TEXT, genre TEXT, runtime NUMERIC, quality NUMERIC, airs TEXT, status TEXT, seasonfolders NUMERIC, paused NUMERIC, startyear NUMERIC);",
-            "CREATE TABLE tv_episodes (episode_id INTEGER PRIMARY KEY, showid NUMERIC, tvdbid NUMERIC, name TEXT, season NUMERIC, episode NUMERIC, description TEXT, airdate NUMERIC, hasnfo NUMERIC, hastbn NUMERIC, status NUMERIC, location TEXT);",
-            "CREATE TABLE info (last_backlog NUMERIC, last_tvdb NUMERIC);",
-            "CREATE TABLE history (action NUMERIC, date NUMERIC, showid NUMERIC, season NUMERIC, episode NUMERIC, quality NUMERIC, resource TEXT, provider NUMERIC);"
-        ]
-        for query in queries:
-            self.connection.action(query)
+        if not self.hasTable("tv_shows") and not self.hasTable("db_version"):
+            queries = [
+                "CREATE TABLE db_version (db_version INTEGER);",
+                "CREATE TABLE history (action NUMERIC, date NUMERIC, showid NUMERIC, season NUMERIC, episode NUMERIC, quality NUMERIC, resource TEXT, provider TEXT, source TEXT);",
+                "CREATE TABLE info (last_backlog NUMERIC, last_tvdb NUMERIC);",
+                "CREATE TABLE tv_episodes (episode_id INTEGER PRIMARY KEY, showid NUMERIC, tvdbid NUMERIC, name TEXT, season NUMERIC, episode NUMERIC, description TEXT, airdate NUMERIC, hasnfo NUMERIC, hastbn NUMERIC, status NUMERIC, location TEXT, file_size NUMERIC, release_name TEXT);",
+                "CREATE TABLE tv_shows (show_id INTEGER PRIMARY KEY, location TEXT, show_name TEXT, tvdb_id NUMERIC, network TEXT, genre TEXT, runtime NUMERIC, quality NUMERIC, airs TEXT, status TEXT, flatten_folders NUMERIC, paused NUMERIC, startyear NUMERIC, tvr_id NUMERIC, tvr_name TEXT, air_by_date NUMERIC, lang TEXT, last_update_tvdb NUMERIC, rls_require_words TEXT, rls_ignore_words TEXT, skip_notices NUMERIC);",
+                "CREATE INDEX idx_tv_episodes_showid_airdate ON tv_episodes (showid,airdate);",
+                "CREATE INDEX idx_showid ON tv_episodes (showid);",
+                "CREATE UNIQUE INDEX idx_tvdb_id ON tv_shows (tvdb_id);",
+                "INSERT INTO db_version (db_version) VALUES (18);"
+            ]
+
+            for query in queries:
+                self.connection.action(query)
 
 
 class AddTvrId (InitialSchema):
@@ -141,12 +156,7 @@ class NumericProviders (AddAirdateIndex):
                 4: 'eztv',
                 5: 'nzbmatrix',
                 6: 'tvnzb',
-                7: 'ezrss',
-                8: 'showrss',
-                9: 'kat',
-                10: 'dailytvtorrents',
-                11: 'publichd',
-                }
+                7: 'ezrss'}
 
     def execute(self):
         self.connection.action("ALTER TABLE history RENAME TO history_old")
@@ -258,21 +268,18 @@ class NewQualitySettings (NumericProviders):
                 logger.log(u"Unknown show quality: " + str(curUpdate["quality"]), logger.WARNING)
                 newQuality = None
 
-            if newQuality:
-                self.connection.action("UPDATE tv_shows SET quality = ? WHERE show_id = ?", [newQuality, curUpdate["show_id"]])
+            if cur_db_version < MIN_DB_VERSION:
+                logger.log_error_and_exit(u"Your database version (" + str(cur_db_version) + ") is too old to migrate from what this version of Sick Beard supports (" + \
+                                          str(MIN_DB_VERSION) + ").\n" + \
+                                          "Upgrade using a previous version (tag) build 496 to build 501 of Sick Beard first or remove database file to begin fresh."
+                                          )
 
-        ### Update history
-        toUpdate = self.connection.select("SELECT * FROM history")
-        for curUpdate in toUpdate:
+            if cur_db_version > MAX_DB_VERSION:
+                logger.log_error_and_exit(u"Your database version (" + str(cur_db_version) + ") has been incremented past what this version of Sick Beard supports (" + \
+                                          str(MAX_DB_VERSION) + ").\n" + \
+                                          "If you have used other forks of Sick Beard, your database may be unusable due to their modifications."
+                                          )
 
-            newAction = None
-            newStatus = None
-            if int(curUpdate["action"] == ACTION_SNATCHED):
-                newStatus = common.SNATCHED
-            elif int(curUpdate["action"] == ACTION_DOWNLOADED):
-                newStatus = common.DOWNLOADED
-            elif int(curUpdate["action"] == ACTION_PRESNATCHED):
-                newAction = common.Quality.compositeStatus(common.SNATCHED, common.Quality.SDTV)
 
             if newAction == None and newStatus == None:
                 continue
@@ -393,7 +400,6 @@ class SetNzbTorrentSettings(PopulateRootDirs):
     def execute(self):
         use_torrents = False
         use_nzbs = False
-        use_vods = False
 
         for cur_provider in sickbeard.providers.sortedProviderList():
             if cur_provider.isEnabled():
@@ -405,14 +411,9 @@ class SetNzbTorrentSettings(PopulateRootDirs):
                     use_torrents = True
                     logger.log(u"Provider " + cur_provider.name + " is enabled, enabling Torrents in the upgrade")
                     break
-                elif cur_provider.providerType == GenericProvider.VOD:
-                    use_vods = True
-                    logger.log(u"Provider "+cur_provider.name+" is enabled, enabling VideoOnDemand in the upgrade")
-                    break
 
         sickbeard.USE_TORRENTS = use_torrents
         sickbeard.USE_NZBS = use_nzbs
-        sickbeard.USE_VODS = use_vods
 
         sickbeard.save_config()
 
@@ -501,7 +502,7 @@ class AddSizeAndSceneNameFields(FixAirByDateSetting):
                 except InvalidNameException:
                     continue
 
-                if parse_result.series_name and parse_result.season_number != None and parse_result.episode_numbers and parse_result.release_group:
+                if parse_result.series_name and parse_result.season_number is not None and parse_result.episode_numbers and parse_result.release_group:
                     # if all is well by this point we'll just put the release name into the database
                     self.connection.action("UPDATE tv_episodes SET release_name = ? WHERE episode_id = ?", [cur_name, ep_results[0]["episode_id"]])
                     break
@@ -534,11 +535,13 @@ class AddSizeAndSceneNameFields(FixAirByDateSetting):
         self.incDBVersion()
 
 
+# included in build 497 (2012-10-16)
 class RenameSeasonFolders(AddSizeAndSceneNameFields):
     def test(self):
         return self.checkDBVersion() >= 11
 
     def execute(self):
+        backupDatabase(11)
         # rename the column
         self.connection.action("ALTER TABLE tv_shows RENAME TO tmp_tv_shows")
         self.connection.action("CREATE TABLE tv_shows (show_id INTEGER PRIMARY KEY, location TEXT, show_name TEXT, tvdb_id NUMERIC, network TEXT, genre TEXT, runtime NUMERIC, quality NUMERIC, airs TEXT, status TEXT, flatten_folders NUMERIC, paused NUMERIC, startyear NUMERIC, tvr_id NUMERIC, tvr_name TEXT, air_by_date NUMERIC, lang TEXT)")
@@ -554,6 +557,7 @@ class RenameSeasonFolders(AddSizeAndSceneNameFields):
         self.incDBVersion()
 
 
+# included in build 500 (2013-05-11)
 class Add1080pAndRawHDQualities(RenameSeasonFolders):
     """Add support for 1080p related qualities along with RawHD
 
@@ -618,7 +622,7 @@ class Add1080pAndRawHDQualities(RenameSeasonFolders):
         return result
 
     def execute(self):
-        backupDatabase(self.checkDBVersion())
+        backupDatabase(12)
 
         # update the default quality so we dont grab the wrong qualities after migration
         sickbeard.QUALITY_DEFAULT = self._update_composite_qualities(sickbeard.QUALITY_DEFAULT)
@@ -677,3 +681,224 @@ class Add1080pAndRawHDQualities(RenameSeasonFolders):
         # cleanup and reduce db if any previous data was removed
         logger.log(u"Performing a vacuum on the database.", logger.DEBUG)
         self.connection.action("VACUUM")
+
+
+# included in build 502 (2013-11-24)
+class AddShowidTvdbidIndex(Add1080pAndRawHDQualities):
+    """ Adding index on tvdb_id (tv_shows) and showid (tv_episodes) to speed up searches/queries """
+
+    def test(self):
+        return self.checkDBVersion() >= 13
+
+    def execute(self):
+        backupDatabase(13)
+
+        logger.log(u"Check for duplicate shows before adding unique index.")
+        MainSanityCheck(self.connection).fix_duplicate_shows()
+
+        logger.log(u"Adding index on tvdb_id (tv_shows) and showid (tv_episodes) to speed up searches/queries.")
+        if not self.hasTable("idx_showid"):
+            self.connection.action("CREATE INDEX idx_showid ON tv_episodes (showid);")
+        if not self.hasTable("idx_tvdb_id"):
+            self.connection.action("CREATE UNIQUE INDEX idx_tvdb_id ON tv_shows (tvdb_id);")
+
+        self.incDBVersion()
+
+
+# included in build 502 (2013-11-24)
+class AddLastUpdateTVDB(AddShowidTvdbidIndex):
+    """ Adding column last_update_tvdb to tv_shows for controlling nightly updates """
+
+    def test(self):
+        return self.checkDBVersion() >= 14
+
+    def execute(self):
+        backupDatabase(14)
+
+        logger.log(u"Adding column last_update_tvdb to tvshows")
+        if not self.hasColumn("tv_shows", "last_update_tvdb"):
+            self.addColumn("tv_shows", "last_update_tvdb", default=1)
+
+        self.incDBVersion()
+
+
+# included in build 504 (2014-04-14)
+class AddRequireAndIgnoreWords(AddLastUpdateTVDB):
+    """ Adding column rls_require_words and rls_ignore_words to tv_shows """
+
+    def test(self):
+        return self.checkDBVersion() >= 15
+
+    def execute(self):
+        backupDatabase(15)
+
+        logger.log(u"Adding column rls_require_words to tvshows")
+        if not self.hasColumn("tv_shows", "rls_require_words"):
+            self.addColumn("tv_shows", "rls_require_words", "TEXT", "")
+
+        logger.log(u"Adding column rls_ignore_words to tvshows")
+        if not self.hasColumn("tv_shows", "rls_ignore_words"):
+            self.addColumn("tv_shows", "rls_ignore_words", "TEXT", "")
+
+        self.incDBVersion()
+
+
+# included in build 507 (2014-11-16)
+class CleanupHistoryAndSpecials(AddRequireAndIgnoreWords):
+    """ Cleanup older history entries and set specials from wanted to skipped """
+
+    def test(self):
+        return self.checkDBVersion() >= 16
+
+    def execute(self):
+        backupDatabase(16)
+
+        logger.log(u"Setting special episodes status to SKIPPED.")
+        self.connection.action("UPDATE tv_episodes SET status = ? WHERE status = ? AND season = 0", [common.SKIPPED, common.WANTED])
+
+        fix_ep_rls_group = []
+        fix_ep_release_name = []
+
+        # re-analyze snatched data
+        logger.log(u"Analyzing history to correct bad data (this could take a moment, be patient)...")
+        history_results = self.connection.select("SELECT * FROM history WHERE action % 100 = 2 ORDER BY date ASC")
+        for cur_result in history_results:
+            # find the associated download, if there isn't one then ignore it
+            download_results = self.connection.select("SELECT * FROM history WHERE action % 100 = 4 AND showid = ? AND season = ? AND episode = ? AND quality = ? AND date > ?",
+                                                    [cur_result["showid"], cur_result["season"], cur_result["episode"], cur_result["quality"], cur_result["date"]])
+            # only continue if there was a download found (thats newer than the snatched)
+            if not download_results:
+                logger.log(u"Found a snatch in the history for " + cur_result["resource"] + " but couldn't find the associated download, skipping it", logger.DEBUG)
+                continue
+
+            # take the snatched nzb, clean it up so we can store it for the corresponding tv_episodes entry
+            clean_nzb_name = helpers.remove_non_release_groups(helpers.remove_extension(cur_result["resource"]))
+
+            # fixed known bad release_group data
+            if download_results[0]["provider"].upper() in ["-1", "RP", "NZBGEEK"] or "." in download_results[0]["provider"]:
+                try:
+                    np = NameParser(False)
+                    parse_result = np.parse(clean_nzb_name)
+                except InvalidNameException:
+                    continue
+
+                # leave off check for episode number so we can update season rip data as well?
+                if parse_result.series_name and parse_result.season_number is not None and parse_result.release_group:
+                    fix_ep_rls_group.append(["UPDATE history SET provider = ? WHERE action = ? AND showid = ? AND season = ? AND episode = ? AND quality = ? AND date = ?", \
+                               [parse_result.release_group, download_results[0]["action"], download_results[0]["showid"], download_results[0]["season"], download_results[0]["episode"], download_results[0]["quality"], download_results[0]["date"]]
+                               ])
+
+            # find the associated episode on disk
+            ep_results = self.connection.select("SELECT episode_id, status, release_name FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ? AND location != ''",
+                                                [cur_result["showid"], cur_result["season"], cur_result["episode"]])
+            if not ep_results:
+                logger.log(u"The episode " + cur_result["resource"] + " was found in history but doesn't exist on disk anymore, skipping", logger.DEBUG)
+                continue
+
+            # skip items that appears to have a 'scene' name already to avoid replacing locally pp/manually moved items
+            match = re.search(".(xvid|x264|h.?264|mpeg-?2)", ep_results[0]["release_name"], re.I)
+            if match:
+                continue
+
+            # get the status/quality of the existing ep and make sure it's what we expect
+            ep_status, ep_quality = common.Quality.splitCompositeStatus(int(ep_results[0]["status"]))
+            if ep_status != common.DOWNLOADED:
+                continue
+
+            if ep_quality != int(cur_result["quality"]):
+                continue
+
+            # take the extension off the filename, it's not needed
+            file_name = ek.ek(os.path.basename, download_results[0]["resource"])
+            if '.' in file_name:
+                file_name = file_name.rpartition('.')[0]
+
+            # make sure this is actually a real release name and not a season pack or something
+            for cur_name in (clean_nzb_name, file_name):
+                logger.log(u"Checking if " + cur_name + " is actually a good release name", logger.DEBUG)
+                try:
+                    np = NameParser(False)
+                    parse_result = np.parse(cur_name)
+                except InvalidNameException:
+                    continue
+
+                if parse_result.series_name and parse_result.season_number is not None and parse_result.episode_numbers and parse_result.release_group:
+                    # if all is well by this point we'll just put the release name into the database
+                    fix_ep_release_name.append(["UPDATE tv_episodes SET release_name = ? WHERE episode_id = ?", [cur_name, ep_results[0]["episode_id"]]])
+                    break
+
+        logger.log(u"Corrected " + str(len(fix_ep_release_name)) + " release names (" + str(len(fix_ep_rls_group)) + " release groups) out of the " + str(len(history_results)) + " releases analyzed.")
+        if len(fix_ep_rls_group) > 0:
+            self.connection.mass_action(fix_ep_rls_group)
+        if len(fix_ep_release_name) > 0:
+            self.connection.mass_action(fix_ep_release_name)
+
+        # now cleanup all downloaded release groups in the history
+        fix_ep_rls_group = []
+        logger.log(u"Analyzing downloaded history release groups...")
+        history_results = self.connection.select("SELECT * FROM history WHERE action % 100 = 4 ORDER BY date ASC")
+        for cur_result in history_results:
+            clean_provider = helpers.remove_non_release_groups(helpers.remove_extension(cur_result["provider"]))
+            # take the data on the left of the _, fixes 'LOL_repost'
+            if clean_provider and "_" in clean_provider:
+                clean_provider = clean_provider.rsplit('_', 1)[0]
+            if clean_provider != cur_result["provider"]:
+                fix_ep_rls_group.append(["UPDATE history SET provider = ? WHERE action = ? AND showid = ? AND season = ? AND episode = ? AND quality = ? AND date = ?", \
+                                         [clean_provider, cur_result["action"], cur_result["showid"], cur_result["season"], cur_result["episode"], cur_result["quality"], cur_result["date"]]
+                                         ])
+        logger.log(u"Corrected " + str(len(fix_ep_rls_group)) + " release groups.")
+        if len(fix_ep_rls_group) > 0:
+            self.connection.mass_action(fix_ep_rls_group)
+
+        self.incDBVersion()
+
+        # cleanup and reduce db if any previous data was removed
+        logger.log(u"Performing a vacuum on the database.", logger.DEBUG)
+        self.connection.action("VACUUM")
+
+
+# included in build 507 (2014-11-16)
+class AddSkipNotifications(CleanupHistoryAndSpecials):
+    """ Adding column skip_notices to tv_shows """
+
+    def test(self):
+        return self.checkDBVersion() >= 17
+
+    def execute(self):
+        backupDatabase(17)
+
+        logger.log(u"Adding column skip_notices to tvshows")
+        if not self.hasColumn("tv_shows", "skip_notices"):
+            self.addColumn("tv_shows", "skip_notices")
+
+        self.incDBVersion()
+
+
+# included in build 507 (2014-11-16)
+class AddHistorySource(AddSkipNotifications):
+    """ Adding column source to history """
+
+    def test(self):
+        return self.checkDBVersion() >= 18
+
+    def execute(self):
+        backupDatabase(18)
+
+        logger.log(u"Adding column source to history")
+        if not self.hasColumn("history", "source"):
+            self.addColumn("history", "source", "TEXT", "")
+
+        logger.log(u"Analyzing history and setting snatch source...")
+        # set source to nzb by default
+        self.connection.action("UPDATE history SET source = 'nzb' WHERE action % 100 = 2")
+        # set source to torrent where needed
+        set_torrent_source = []
+        history_results = self.connection.select("SELECT * FROM history WHERE action % 100 = 2 AND provider IN ('BTN', 'HDbits', 'TorrentLeech', 'TvTorrents')")
+        for cur_result in history_results:
+                set_torrent_source.append(["UPDATE history SET source = 'torrent' WHERE action = ? AND date = ? AND showid = ? AND provider = ? AND quality = ?", \
+                                          [cur_result["action"], cur_result["date"], cur_result["showid"], cur_result["provider"], cur_result["quality"]]
+                                           ])
+        if len(set_torrent_source) > 0:
+            self.connection.mass_action(set_torrent_source)
+
+        self.incDBVersion()

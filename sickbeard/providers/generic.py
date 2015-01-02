@@ -35,6 +35,9 @@ from sickbeard.common import Quality, MULTI_EP_RESULT, SEASON_RESULT
 from sickbeard import tvcache
 from sickbeard import encodingKludge as ek
 from sickbeard.exceptions import ex
+
+from lib.hachoir_parser import createParser
+
 from sickbeard import downloader
 
 from sickbeard.name_parser.parser import NameParser, InvalidNameException
@@ -62,7 +65,7 @@ class GenericProvider:
 
     @staticmethod
     def makeID(name):
-        return re.sub("[^\w\d_]", "_", name).lower()
+        return re.sub("[^\w\d_]", "_", name.strip().lower())
 
     def imageName(self):
         return self.getID() + '.png'
@@ -104,7 +107,7 @@ class GenericProvider:
 
         return result
 
-    def getURL(self, url, headers=None):
+    def getURL(self, url, post_data=None, headers=None):
         """
         By default this is just a simple urlopen call but this method should be overridden
         for providers with special URL requirements (like cookies)
@@ -113,7 +116,7 @@ class GenericProvider:
         if not headers:
             headers = []
 
-        data = helpers.getURL(url, headers)
+        data = helpers.getURL(url, post_data, headers)
 
         if not data:
             logger.log(u"Error loading " + self.name + " URL: " + url, logger.ERROR)
@@ -149,11 +152,10 @@ class GenericProvider:
         logger.log(u"Saving to " + file_name, logger.DEBUG)
 
         try:
-            fileOut = open(file_name, writeMode)
-            fileOut.write(data)
-            fileOut.close()
+            with open(file_name, writeMode) as fileOut:
+                fileOut.write(data)
             helpers.chmodAsParent(file_name)
-        except IOError, e:
+        except EnvironmentError, e:
             logger.log(u"Unable to save the file: " + ex(e), logger.ERROR)
             return False
 

@@ -16,7 +16,7 @@
         return false;
     },
     format: function(s) {
-        return (s || '').replace(/^(The|A)\s/i,'');
+        return /^(a to )/i.test(s || '') ? s : (s || '').replace(/^(The|A|An)\s/i,'');
     },
     type: 'text'
 });
@@ -25,7 +25,7 @@
     is: function(s) {
         return false;
     },
-    format: function(s) { 
+    format: function(s) {
         return s.replace('hd1080p',5).replace('hd720p',4).replace('hd',3).replace('sd',2).replace('any',1).replace('best',0).replace('custom',7);
     },
     type: 'numeric'
@@ -142,5 +142,4 @@ $myShowList.sort(lambda x, y: cmp(x.name, y.name))
 
 </form>
 
-<script type="text/javascript" src="$sbRoot/js/tableClick.js?$sbPID"></script>
 #include $os.path.join($sickbeard.PROG_DIR, "data/interfaces/default/inc_bottom.tmpl")

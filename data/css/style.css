@@ -46,13 +46,25 @@ browser.css
 .ui-menu .ui-menu-item {
   background-color: #eee;
 }
-.ui-menu .ui-menu-item-alternate{
+.ui-menu .ui-menu-item-alternate {
   background-color: #fff;
 }
-.ui-menu a.ui-state-hover{
+.ui-autocomplete .ui-menu-item.ui-state-focus,
+.ui-autocomplete .ui-menu-item.ui-state-active {
   color: #fff;
   background: none;
   background-color: #0a246a;
+  margin: 0;
+  border: none;
+  font-weight: normal;
+}
+/* restore 1.8.x resize handle on dialog button pane */
+.ui-dialog .ui-resizable-se {
+  width: 14px;
+  height: 14px;
+  right: 3px;
+  bottom: 3px;
+  background-position: -80px -224px;
 }
 
 /* =======================================================================
@@ -134,7 +146,7 @@ div.formpaginate .prev, div.formpaginate .next {
 /* =======================================================================
 tablesorter.css -- custom
 ========================================================================== */
-table.tablesorter {
+.tablesorter {
   width: 100%;
   margin-right: auto;
   margin-left: auto;
@@ -143,25 +155,26 @@ table.tablesorter {
   background-color: #fff;
   border-spacing: 0;
 }
-table.tablesorter th,
-table.tablesorter td {
+.tablesorter th,
+.tablesorter td {
   padding: 4px;
   border-top: #fff 1px solid;
   border-left: #fff 1px solid;
+  vertical-align: middle;
 }
 /* remove extra border from left edge */
-table.tablesorter th:first-child,
-table.tablesorter td:first-child {
+.tablesorter th:first-child,
+.tablesorter td:first-child {
   border-left: none;
 }
-table.tablesorter th {
+.tablesorter th {
   color: #fff;
   text-align: center;
   text-shadow: -1px -1px 0 rgba(0,0,0,0.3);
   background-color: #333;
   border-collapse: collapse;
 }
-table.tablesorter .tablesorter-header {
+.tablesorter .tablesorter-header {
   padding: 4px 18px 4px 4px;
   cursor: pointer;
   background-image: url(data:image/gif;base64,R0lGODlhFQAJAIAAAP///////yH5BAEAAAEALAAAAAAVAAkAAAIXjI+AywnaYnhUMoqt3gZXPmVg94yJVQAAOw==);
@@ -169,56 +182,66 @@ table.tablesorter .tablesorter-header {
   background-repeat: no-repeat;
   /* background-image: url(../images/tablesorter/bg.gif); */
 }
-table.tablesorter th.tablesorter-headerSortUp {
+.tablesorter thead .tablesorter-headerDesc {
   background-color: #57442b;
   background-image: url(data:image/gif;base64,R0lGODlhFQAEAIAAAP///////yH5BAEAAAEALAAAAAAVAAQAAAINjB+gC+jP2ptn0WskLQA7);
   /* background-image: url(../images/tablesorter/asc.gif); */
 }
-table.tablesorter th.tablesorter-headerSortDown {
+.tablesorter thead .tablesorter-headerAsc {
   background-color: #57442b;
   background-image: url(data:image/gif;base64,R0lGODlhFQAEAIAAAP///////yH5BAEAAAEALAAAAAAVAAQAAAINjI8Bya2wnINUMopZAQA7);
   /* background-image: url(../images/tablesorter/desc.gif); */
 }
+.tablesorter thead .sorter-false {
+  background-image: none;
+  padding: 4px;
+  cursor: default;
+}
+thead.tablesorter-stickyHeader {
+  border-top: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+}
+
 /* Zebra Widget - row alternating colors */
-table.tablesorter tr.odd, .sickbeardTable tr.odd {
+.tablesorter tr.odd, .sickbeardTable tr.odd {
   background-color: #f5f1e4;
 }
-table.tablesorter tr.even, .sickbeardTable tr.even {
+.tablesorter tr.even, .sickbeardTable tr.even {
   background-color: #dfdacf;
 }
 /* filter widget */
-table.tablesorter input.tablesorter-filter {
+.tablesorter .filtered {
+  display: none;
+}
+.tablesorter input.tablesorter-filter {
   width: 98%;
-  height: inherit;
+  height: auto;
   -webkit-box-sizing: border-box;
      -moz-box-sizing: border-box;
           box-sizing: border-box;
 }
-table.tablesorter tr.tablesorter-filter,
-table.tablesorter tr.tablesorter-filter td {
+.tablesorter tr.tablesorter-filter-row,
+.tablesorter tr.tablesorter-filter-row td {
   text-align: center;
   background: #eee;
+  border-bottom: 1px solid #ddd;
 }
 /* optional disabled input styling */
-table.tablesorter input.tablesorter-filter.disabled {
+.tablesorter input.tablesorter-filter-row .disabled {
   display: none;
 }
 .tablesorter-header-inner {
   padding: 0 2px;
   text-align: center;
 }
-tr.tablesorter-stickyHeader {
-  padding: 2px 0;
-  background-color: #fff;
-}
-table.tablesorter tfoot tr {
+.tablesorter tfoot tr {
   color: #fff;
   text-align: center;
   text-shadow: -1px -1px 0 rgba(0,0,0,0.3);
   background-color: #333;
   border-collapse: collapse;
 }
-table.tablesorter tfoot a {
+.tablesorter tfoot a {
   color:#fff;
   text-decoration: none;
 }
@@ -580,10 +603,6 @@ config*.tmpl
   margin: 10px 0;
   color: #666;
 }
-.component-group-list {
-  float: left;
-  width: 590px;
-}
 #config div.field-pair {
   padding: 8px 4px;
 }
@@ -734,6 +753,26 @@ span.pause {
 .epSummary {
   padding-top: 5px;
   margin-left: 25px;
+}
+
+/* =======================================================================
+history.tmpl
+========================================================================== */
+th.col-src,
+td.col-src {
+  width: 45px;
+  text-align: center;
+}
+th.col-time,
+td.col-time {
+  width: 155px;
+  white-space: nowrap;
+  text-align: center;
+}
+th.col-action,
+td.col-action {
+  width: 110px;
+  text-align: center;
 }
 
 /* =======================================================================
@@ -896,14 +935,16 @@ div.metadata-options label {
 div.metadata-options label:hover {
   color: #fff;
   background-color: #57442b;
+  cursor: pointer;
 }
 div.metadata-example {
-  padding: 7px;
+  padding: 8px;
 }
 div.metadata-example label {
   display: block;
-  line-height: 21px;
+  line-height: 20px;
   color: #000;
+  cursor: pointer;
 }
 div.metadataDiv .disabled {
   color: #ccc;
@@ -965,6 +1006,8 @@ td.tvShow a {
   font-size: 14px;
   color: #333;
   text-decoration: none;
+  display: block;
+  width: 100%;
 }
 td.tvShow:hover a {
   color:#000;
@@ -1008,11 +1051,10 @@ h1 a:hover, h2 a:hover, span a:hover, div.h2footer a:hover, .notify-text a:hover
 }
 /* used on displayShow and comingEp list */
 .plotInfo {
-  position: relative;
-  float: right;
-  margin-left: 8px;
-  font-weight: bold;
   cursor: help;
+}
+.plotInfoNone {
+  opacity: 0.25;
 }
 div select option {
   padding: 2px 10px;
@@ -1346,3 +1388,87 @@ ul.nav .dropdown-menu .divider {
   filter: progid:dximagetransform.microsoft.gradient(startColorstr='#51a9c4', endColorstr='#2d88a1', GradientType=0);
 }
 */
+
+/* =======================================================================
+displayShow.tmpl (update)
+========================================================================== */
+.sickbeardTable2 {
+  table-layout: auto;
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  text-align: center;
+  border: none;
+  empty-cells: show;
+}
+.sickbeardTable2 th{
+  color: #fff;
+  text-align: center;
+  background-color: #333;
+  white-space: nowrap;
+}
+.sickbeardTable2 th, 
+.sickbeardTable2 td {
+  border-top: 1px solid #fff;
+  border-left: 1px solid #fff;
+  padding: 4px;
+}
+th.row-seasonheader {
+  border: none;
+  background-color: #fff;
+  color: #000;
+  line-height: 25px;
+  font-size: 22px;
+  letter-spacing: 1px;
+  padding-top: 15px;
+}
+
+th.col-checkbox,
+td.col-checkbox {
+  width: 17px;
+  border-left: none;
+}
+th.col-metadata,
+td.col-metadata {
+  width: 28px;
+}
+th.col-ep,
+td.col-ep {
+  width: 50px;
+  white-space: nowrap;
+}
+th.col-name,
+td.col-name {
+  min-width: 100px;
+  text-align: left;
+}
+th.col-plotinfo,
+td.col-plotinfo {
+  width: 18px;
+  border-left: none;
+}
+th.col-airdate,
+td.col-airdate {
+  width: 86px;
+  white-space: nowrap;
+}
+th.col-filename,
+td.col-filename {
+  text-align: left;
+}
+th.col-status,
+td.col-status {
+  text-align: left;
+}
+th.col-search,
+td.col-search {
+  width: 46px;
+}
+/* need to remove when we upgrade bootstrap */
+.btn-block {
+  box-sizing: border-box;
+  display: block;
+  padding-left: 0;
+  padding-right: 0;
+  width: 100%;
+}

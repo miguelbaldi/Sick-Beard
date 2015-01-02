@@ -46,7 +46,7 @@ def get_scene_exceptions(tvdb_id, ignoreCustom=False):
         scene_exceptions = _dyn_cache[str(tvdb_id)]
     except KeyError:
         myDB = db.DBConnection("cache.db")
-        scene_exceptions = [x["show_name"] for x in myDB.select("SELECT show_name FROM scene_exceptions WHERE tvdb_id = ?", [tvdb_id])]
+        scene_exceptions = [x["show_name"] for x in myDB.select("SELECT DISTINCT show_name FROM scene_exceptions WHERE tvdb_id = ?", [tvdb_id])]
         _dyn_cache[str(tvdb_id)] = scene_exceptions
 
     if ignoreCustom:
@@ -68,14 +68,14 @@ def get_scene_exception_by_name(show_name):
     if exception_result:
         return int(exception_result[0]["tvdb_id"])
 
-    all_exception_results = myDB.select(u"SELECT show_name, tvdb_id FROM scene_exceptions")
+    all_exception_results = myDB.select("SELECT DISTINCT show_name, tvdb_id FROM scene_exceptions")
     for cur_exception in all_exception_results:
 
         cur_exception_name = cur_exception["show_name"]
         cur_tvdb_id = int(cur_exception["tvdb_id"])
 
         if show_name.lower() in (cur_exception_name.lower(), helpers.sanitizeSceneName(cur_exception_name).lower().replace('.', ' ')):
-            logger.log(u"Scene exception lookup got tvdb id "+str(cur_tvdb_id)+u", using that", logger.DEBUG)
+            logger.log(u"Scene exception lookup got tvdb id " + str(cur_tvdb_id) + u", using that", logger.DEBUG)
             return cur_tvdb_id
         
     
