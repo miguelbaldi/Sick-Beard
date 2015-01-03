@@ -19,7 +19,7 @@ Specifically it includes
 
 Requires Python 2.5, 2.6, or 2.7.
 
-[Installation Instructions](https://github.com/bricky/Sick-Beard/wiki/How-To-Install-Sickbeard-for-Torrents)
+[Installation Instructions](https://github.com/miguelbaldi/Sick-Beard/wiki/How-To-Install-Sickbeard-for-Torrents)
 
 See [here](http://brickybox.com/2012/09/24/sickbeard-fork-feature-summary) for some further info.  
 
